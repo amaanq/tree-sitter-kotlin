@@ -53,10 +53,14 @@ module.exports = grammar({
 
   externals: $ => [
     $._semi,
+    $.multiline_comment,
+    $._is_op,
+    $._as_op,
   ],
 
   extras: $ => [
     $.comment,
+    $.multiline_comment,
     /\s/,
   ],
 
@@ -84,9 +88,7 @@ module.exports = grammar({
       repeat($.file_annotation),
       optional($.package_header),
       optional($.import_list),
-      choice(
-        repeat(seq($.statement, $._semi)),
-      ),
+      repeat(seq($.statement, $._semi)),
     ),
 
     shebang_line: _ => seq('#!', /[^\r\n]*/),
@@ -265,7 +267,7 @@ module.exports = grammar({
       seq('=', $.expression),
     ),
 
-    variable_declaration: $ => prec.right(seq(
+    variable_declaration: $ => prec.left(3, seq(
       // repeat($.annotation),
       $.identifier,
       optional(seq(':', $.type)),
@@ -387,40 +389,37 @@ module.exports = grammar({
 
     // Types
 
-    type: $ => prec.right(seq(
+    type: $ => seq(
       repeat($.type_modifier),
       choice(
         // $.function_type,
         $.parenthesized_type,
         $.nullable_type,
-        $.type_reference,
+        $._type_reference,
         $.definitely_non_nullable_type,
       ),
-    )),
+    ),
 
-    type_reference: $ => prec.right(1, choice($.user_type, 'dynamic')),
+    _type_reference: $ => choice($.user_type, 'dynamic'),
 
-    nullable_type: $ => prec.right(seq(
-      choice($.type_reference, $.parenthesized_type),
+    nullable_type: $ => seq(
+      choice($._type_reference, $.parenthesized_type),
       repeat1('?'),
+    ),
+
+    user_type: $ => seq($._simple_user_type, repeat(seq('.', $._simple_user_type))),
+    _simple_user_type: $ => prec.right(2, seq(
+      $.identifier,
+      optional($.type_arguments),
     )),
 
-    user_type: $ => prec.right(seq(
-      $.simple_user_type,
-      repeat(seq('.', $.simple_user_type)),
-    )),
-    simple_user_type: $ => prec.right(1, seq(
-      $.identifier,
-      // optional($.type_arguments),
-    )),
-    //
-    // type_projection: $ => choice(
-    //   seq(repeat($.type_projection_modifier), $.type),
-    //   '*',
-    // ),
-    //
-    // type_projection_modifier: $ => choice($.variance_modifier/* , $.annotation*/),
-    //
+    type_projection: $ => choice(
+      seq(optional($.type_projection_modifier), $.type),
+      '*',
+    ),
+
+    type_projection_modifier: $ => choice($.variance_modifier/* , $.annotation*/),
+
     // function_type: $ => seq(
     //   // optional(seq($.receiver_type, '.')),
     //   $.function_type_parameters,
@@ -434,11 +433,8 @@ module.exports = grammar({
     //   ')',
     // ),
 
-    parenthesized_type: $ => prec.right(PREC.PARENTHESES, seq(
-      '(',
-      $.type,
-      ')',
-    )),
+    parenthesized_type: $ => seq('(', $.type, ')'),
+
     //
     // // receiver_type: $ => prec(1, seq(
     // //   repeat($.type_modifier),
@@ -531,11 +527,7 @@ module.exports = grammar({
     //
     expression: $ => choice(
       $.assignment_expression,
-      $.unary_expression,
-      $.binary_expression,
-      // $.in_expression,
       // $.is_expression,
-      // $.range_expression,
       // $.as_expression,
       // $.index_expression,
       // $.member_expression,
@@ -551,9 +543,12 @@ module.exports = grammar({
       $.expression,
     )),
 
-    primary_expression: $ => prec.right(choice(
+    primary_expression: $ => choice(
+      $.unary_expression,
+      $.binary_expression,
       $.parenthesized_expression,
       $.identifier,
+      $.type,
       $.literal,
       $.string,
       // $.callable_reference,
@@ -566,7 +561,7 @@ module.exports = grammar({
       $.when_expression,
       $.try_expression,
       $.jump_expression,
-    )),
+    ),
 
     unary_expression: $ => choice(
       prec.right(PREC.PREFIX, seq(
@@ -581,7 +576,6 @@ module.exports = grammar({
 
     binary_expression: $ => {
       const table = [
-        ['*', PREC.SPREAD],
         ['||', PREC.DISJUNCTION],
         ['&&', PREC.CONJUNCTION],
         ['==', PREC.EQUALITY],
@@ -593,6 +587,8 @@ module.exports = grammar({
         ['<=', PREC.COMPARISON],
         ['>=', PREC.COMPARISON],
         ['?:', PREC.ELVIS],
+        ['in', PREC.INFIX],
+        ['!in', PREC.INFIX],
         ['..', PREC.RANGE],
         ['+', PREC.ADDITIVE],
         ['-', PREC.ADDITIVE],
@@ -611,34 +607,19 @@ module.exports = grammar({
       }));
     },
 
-    // in_expression: $ => prec.right(PREC.INFIX, seq(
+    // is_expression: $ => prec(PREC.INFIX, seq(
     //   field('left', $.expression),
-    //   seq(
-    //     field('operator', choice('in', '!in')),
-    //     field('right', $.expression),
-    //   ),
+    //   // field('operator', choice('is', '!is')),
+    //   field('operator', $._is_op),
+    //   field('right', $.type),
     // )),
     //
-    // is_expression: $ => prec.right(PREC.INFIX, seq(
-    //   field('left', $.expression),
-    //   seq(
-    //     field('operator', choice('is', '!is')),
-    //     field('right', $.type),
-    //   ),
-    // )),
-    //
-    // range_expression: $ => prec.right(PREC.RANGE, seq(
-    //   field('left', $.expression),
-    //   field('operator', '..'),
-    //   field('right', $.expression),
-    // )),
-    //
-    // as_expression: $ => prec.right(PREC.AS, seq(
+    // as_expression: $ => prec(PREC.AS, seq(
     //   field('left', $.expression),
     //   field('operator', choice('as', 'as?')),
     //   field('right', $.type),
     // )),
-    //
+
     // index_expression: $ => prec.right(PREC.INDEX, seq(
     //   $.expression,
     //   '[',
@@ -667,12 +648,12 @@ module.exports = grammar({
     //   $.lambda_literal,
     // ),
     //
-    // type_arguments: $ => seq(
-    //   '<',
-    //   optionalCommaSep1($.type_projection),
-    //   '>',
-    // ),
-    //
+    type_arguments: $ => seq(
+      '<',
+      optionalCommaSep1($.type_projection),
+      '>',
+    ),
+
     value_arguments: $ => seq(
       '(',
       optionalCommaSep($.value_argument),
@@ -1032,12 +1013,13 @@ module.exports = grammar({
 
     float: _ => {
       const decimal = /[0-9][0-9_]*/;
-      const exponent = seq(/[eE][+-]?/, decimal);
+      const dot_decimal = /[0-9][0-9_]*\.[0-9][0-9_]*/;
+      const exponent = /[eE][+-]?[0-9]+/;
 
       return token(choice(
         seq(
           choice(
-            seq(optional(decimal), '.', decimal, optional(exponent)),
+            seq(dot_decimal, optional(exponent)),
             seq(decimal, exponent),
           ),
           optional(choice('f', 'F')),
@@ -1055,8 +1037,6 @@ module.exports = grammar({
       /[a-zA-Z_][a-zA-Z0-9_]*/,
       /`[^`\r\n]+`/,
     )),
-
-    // _semi: _ => choice(':', ';'),
 
     comment: _ => token(seq('//', /.*/)),
   },

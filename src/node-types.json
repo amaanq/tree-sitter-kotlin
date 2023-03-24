@@ -34,15 +34,7 @@
         "named": true
       },
       {
-        "type": "binary_expression",
-        "named": true
-      },
-      {
         "type": "primary_expression",
-        "named": true
-      },
-      {
-        "type": "unary_expression",
         "named": true
       }
     ]
@@ -149,6 +141,10 @@
             "named": false
           },
           {
+            "type": "!in",
+            "named": false
+          },
+          {
             "type": "%",
             "named": false
           },
@@ -202,6 +198,10 @@
           },
           {
             "type": "?:",
+            "named": false
+          },
+          {
+            "type": "in",
             "named": false
           },
           {
@@ -1184,6 +1184,10 @@
       "required": true,
       "types": [
         {
+          "type": "binary_expression",
+          "named": true
+        },
+        {
           "type": "collection_literal",
           "named": true
         },
@@ -1229,6 +1233,14 @@
         },
         {
           "type": "try_expression",
+          "named": true
+        },
+        {
+          "type": "type",
+          "named": true
+        },
+        {
+          "type": "unary_expression",
           "named": true
         },
         {
@@ -1850,6 +1862,10 @@
     "named": false
   },
   {
+    "type": "!in",
+    "named": false
+  },
+  {
     "type": "\"",
     "named": false
   },
@@ -2164,6 +2180,10 @@
   {
     "type": "lateinit",
     "named": false
+  },
+  {
+    "type": "multiline_comment",
+    "named": true
   },
   {
     "type": "noinline",
