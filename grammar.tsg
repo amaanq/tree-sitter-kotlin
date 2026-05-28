@@ -1,0 +1,1030 @@
+// Kotlin grammar for tree-sitter (native DSL).
+// Translated from grammar.js.
+
+let PREC = {
+    SPREAD: 1,
+    LOGICAL_OR: 2,
+    LOGICAL_AND: 3,
+    EQUAL: 4,
+    RELATIONAL: 5,
+    IN: 6,
+    ELVIS: 7,
+    INFIX: 8,
+    RANGE: 9,
+    ADD: 10,
+    MULTIPLY: 11,
+    AS: 12,
+    CALL: 13,
+    UNARY: 14,
+}
+
+macro sep1(rule: rule_t, separator: rule_t) rule_t {
+    seq(rule, repeat(seq(separator, rule)))
+}
+
+macro optional_sep1(rule: rule_t, separator: rule_t) rule_t {
+    optional(seq(rule, repeat(seq(separator, rule)), optional(separator)))
+}
+
+macro comma_sep1(rule: rule_t) rule_t {
+    seq(rule, repeat(seq(",", rule)))
+}
+
+macro comma_sep(rule: rule_t) rule_t { optional(comma_sep1(rule)) }
+
+macro optional_comma_sep1(rule: rule_t) rule_t {
+    optional(seq(rule, repeat(seq(",", rule)), optional(",")))
+}
+
+macro binop_l(p: int_t, op: rule_t) rule_t {
+    prec_left(p, seq(
+        field(left, expression),
+        field(operator, op),
+        field(right, expression),
+    ))
+}
+
+grammar {
+    language: "kotlin",
+    conflicts: [
+        [class_body, enum_class_body],
+        [binary_expression, call_expression],
+        [binary_expression, in_expression, call_expression],
+        [binary_expression, infix_expression, call_expression],
+        [binary_expression, range_expression, call_expression],
+        [user_type],
+        [_simple_user_type, primary_expression],
+        [type, _receiver_type],
+        [modifiers, annotated_lambda],
+        [modifiers, annotated_expression],
+        [delegation_specifier, type_modifiers],
+        [annotated_expression, type_modifiers],
+        [annotated_expression, type_modifiers, when_subject],
+        [annotated_expression, type_modifiers, modifiers],
+        [parameter_modifiers, type_modifiers],
+        [function_modifier, type_modifiers],
+        [function_modifier, _reserved_identifier],
+        [variable_declaration, type_modifiers],
+        [variable_declaration, type_modifiers, modifiers, annotated_expression],
+        [variable_declaration, type_modifiers, annotated_expression],
+        [variable_declaration],
+        [function_value_parameters, function_type_parameters],
+        [parenthesized_type, function_type_parameters],
+        [multi_variable_declaration, function_type_parameters],
+        [class_modifier, _reserved_identifier],
+        [platform_modifier, _reserved_identifier],
+        [property_modifier, _reserved_identifier],
+        [explicit_delegation, expression],
+        [qualified_identifier],
+        [constructor_invocation, _unescaped_annotation],
+        [nullable_type],
+        [non_nullable_type],
+        [function_type],
+        [_receiver_type],
+    ],
+    extras: [regexp(r"\s"), line_comment, block_comment],
+    externals: [
+        _semi, _class_member_semi, block_comment,
+        _not_is, _in, _q_dot, _multiline_string_content,
+        "constructor", "get", "set",
+        "$",
+    ],
+    inline: [_statements, _identifier],
+    precedences: [
+        [block, lambda_literal],
+        [function_type, nullable_type],
+        [function_type, non_nullable_type],
+    ],
+    supertypes: [
+        class_member_declaration, declaration, expression,
+        primary_expression, type, statement,
+    ],
+    word: identifier,
+}
+
+rule source_file {
+    seq(
+        optional(shebang),
+        repeat(file_annotation),
+        optional(package_header),
+        repeat(r#import),
+        repeat(seq(statement, _semi)),
+    )
+}
+
+rule file_annotation {
+    seq(
+        "@",
+        "file",
+        ":",
+        choice(
+            seq("[", repeat1(_unescaped_annotation), "]"),
+            _unescaped_annotation,
+        ),
+        _semi,
+    )
+}
+
+rule package_header {
+    seq("package", qualified_identifier, optional(";"))
+}
+
+rule r#import {
+    seq(
+        "import",
+        qualified_identifier,
+        optional(choice(
+            seq(".", "*"),
+            seq("as", identifier),
+        )),
+        optional(";"),
+    )
+}
+
+rule declaration {
+    choice(
+        class_declaration, object_declaration,
+        function_declaration, property_declaration, type_alias,
+    )
+}
+
+rule class_declaration {
+    prec_right(0, seq(
+        optional(modifiers),
+        choice("class", seq(optional("fun"), "interface")),
+        field(name, identifier),
+        optional(type_parameters),
+        optional(primary_constructor),
+        optional(seq(":", delegation_specifiers)),
+        optional(type_constraints),
+        optional(choice(class_body, enum_class_body)),
+    ))
+}
+
+rule object_declaration {
+    prec_right(0, seq(
+        optional(modifiers),
+        "object",
+        field(name, identifier),
+        optional(seq(":", delegation_specifiers)),
+        optional(class_body),
+    ))
+}
+
+rule property_declaration {
+    prec_right(0, seq(
+        optional(modifiers),
+        choice("val", "var"),
+        optional(type_parameters),
+        optional(seq(_receiver_type, optional("."))),
+        choice(variable_declaration, multi_variable_declaration),
+        optional(type_constraints),
+        optional(choice(
+            seq("=", expression),
+            property_delegate,
+        )),
+        optional(";"),
+        optional(choice(
+            seq(getter, optional(setter)),
+            seq(setter, optional(getter)),
+        )),
+    ))
+}
+
+rule type_alias {
+    prec_right(0, seq(
+        optional(modifiers),
+        "typealias",
+        field(type, identifier),
+        optional(type_parameters),
+        "=",
+        type,
+    ))
+}
+
+rule companion_object {
+    seq(
+        optional(modifiers),
+        "companion",
+        "object",
+        optional(field(name, identifier)),
+        optional(seq(":", delegation_specifiers)),
+        optional(class_body),
+    )
+}
+
+rule anonymous_initializer { seq("init", block) }
+
+rule secondary_constructor {
+    seq(
+        optional(modifiers),
+        "constructor",
+        function_value_parameters,
+        optional(seq(":", constructor_delegation_call)),
+        optional(block),
+    )
+}
+
+rule constructor_delegation_call {
+    seq(choice("this", "super"), value_arguments)
+}
+
+rule type_parameters {
+    seq("<", comma_sep1(type_parameter), ">")
+}
+
+rule type_parameter {
+    seq(
+        optional(type_parameter_modifiers),
+        identifier,
+        optional(seq(":", type)),
+    )
+}
+
+rule primary_constructor {
+    seq(
+        optional(seq(
+            optional(modifiers),
+            "constructor",
+        )),
+        class_parameters,
+    )
+}
+
+rule class_parameters {
+    seq("(", optional_comma_sep1(class_parameter), ")")
+}
+
+rule class_parameter {
+    seq(
+        optional(modifiers),
+        optional(choice("val", "var")),
+        _identifier,
+        ":", type,
+        optional(seq("=", expression)),
+    )
+}
+
+rule type_constraints {
+    prec_right(0, seq("where", comma_sep1(type_constraint)))
+}
+
+rule type_constraint {
+    prec_right(0, seq(identifier, ":", type))
+}
+
+rule constructor_invocation { seq(type, value_arguments) }
+
+rule function_declaration {
+    prec_right(1, seq(
+        optional(modifiers),
+        "fun",
+        optional(type_parameters),
+        optional(seq(_receiver_type, optional("."))),
+        field(name, _identifier),
+        function_value_parameters,
+        optional(seq(":", type)),
+        optional(type_constraints),
+        optional(function_body),
+    ))
+}
+
+rule function_value_parameters {
+    seq(
+        "(",
+        optional_comma_sep1(seq(
+            optional(parameter_modifiers),
+            parameter,
+            optional(seq("=", expression)),
+        )),
+        ")",
+    )
+}
+
+rule parameter { seq(_identifier, ":", type) }
+
+rule delegation_specifiers { comma_sep1(delegation_specifier) }
+
+rule delegation_specifier {
+    prec_right(0, seq(
+        repeat(annotation),
+        choice(constructor_invocation, explicit_delegation, type),
+    ))
+}
+
+rule variable_declaration {
+    prec(1, seq(
+        repeat(annotation),
+        _identifier,
+        optional(seq(":", type)),
+    ))
+}
+
+rule multi_variable_declaration {
+    seq("(", optional_comma_sep1(variable_declaration), ")")
+}
+
+rule property_delegate { seq("by", expression) }
+
+rule explicit_delegation {
+    seq(type, "by", primary_expression)
+}
+
+rule getter {
+    prec_right(0, seq(
+        optional(modifiers),
+        "get",
+        optional(seq(
+            "(",
+            ")",
+            optional(seq(":", type)),
+            function_body,
+        )),
+    ))
+}
+
+rule setter {
+    prec_right(0, seq(
+        optional(modifiers),
+        "set",
+        optional(seq(
+            "(",
+            optional(parameter_modifiers),
+            identifier,
+            optional(seq(":", type)),
+            optional(seq("=", expression)),
+            ")",
+            optional(seq(":", type)),
+            function_body,
+        )),
+    ))
+}
+
+rule function_body { choice(block, seq("=", expression)) }
+
+rule block { seq("{", optional(_statements), "}") }
+
+rule for_statement {
+    prec_right(0, seq(
+        optional(label),
+        "for",
+        "(",
+        repeat(annotation),
+        choice(variable_declaration, multi_variable_declaration),
+        "in",
+        expression,
+        ")",
+        optional(choice(block, statement)),
+    ))
+}
+
+rule while_statement {
+    prec_right(0, seq(
+        optional(label),
+        "while",
+        "(",
+        field(condition, expression),
+        ")",
+        optional(choice(block, statement, ";")),
+    ))
+}
+
+rule do_while_statement {
+    prec_right(0, seq(
+        optional(label),
+        "do",
+        optional(choice(block, statement, ";")),
+        "while",
+        "(",
+        field(condition, expression),
+        ")",
+    ))
+}
+
+rule class_body {
+    seq(
+        "{",
+        repeat(seq(class_member_declaration, _class_member_semi)),
+        "}",
+    )
+}
+
+rule class_member_declaration {
+    choice(declaration, companion_object, anonymous_initializer, secondary_constructor)
+}
+
+rule enum_class_body {
+    seq(
+        "{",
+        optional_comma_sep1(enum_entry),
+        optional(seq(
+            ";",
+            repeat(seq(class_member_declaration, _class_member_semi)),
+        )),
+        "}",
+    )
+}
+
+rule enum_entry {
+    seq(
+        optional(modifiers),
+        identifier,
+        optional(value_arguments),
+        optional(class_body),
+    )
+}
+
+rule value_arguments {
+    seq("(", optional_comma_sep1(value_argument), ")")
+}
+
+rule value_argument {
+    seq(
+        optional(seq(_identifier, "=")),
+        optional("*"),
+        expression,
+    )
+}
+
+rule _statements {
+    seq(statement, repeat(seq(_semi, statement)), optional(_semi))
+}
+
+rule statement {
+    choice(
+        declaration,
+        assignment,
+        for_statement,
+        while_statement,
+        do_while_statement,
+        expression,
+    )
+}
+
+rule modifiers {
+    prec_right(0, repeat1(choice(
+        annotation, class_modifier, member_modifier,
+        function_modifier, property_modifier, visibility_modifier,
+        inheritance_modifier, parameter_modifier, platform_modifier,
+    )))
+}
+
+rule class_modifier {
+    choice("enum", "sealed", "annotation", "data", "inner", "value")
+}
+
+rule function_modifier {
+    prec_right(0, choice("tailrec", "operator", "infix", "inline", "external", "suspend"))
+}
+
+rule property_modifier { "const" }
+
+rule visibility_modifier {
+    choice("public", "private", "protected", "internal")
+}
+
+rule inheritance_modifier {
+    choice("abstract", "final", "open")
+}
+
+rule member_modifier { choice("override", "lateinit") }
+
+rule parameter_modifiers {
+    repeat1(choice(annotation, parameter_modifier))
+}
+
+rule parameter_modifier {
+    choice("vararg", "noinline", "crossinline")
+}
+
+rule reification_modifier { "reified" }
+
+rule platform_modifier { choice("expect", "actual") }
+
+rule type_modifiers {
+    prec_right(0, repeat1(choice(annotation, "suspend")))
+}
+
+rule annotation {
+    choice(
+        seq("@", optional(use_site_target), _unescaped_annotation),
+        seq(
+            "@",
+            optional(use_site_target),
+            "[",
+            repeat1(_unescaped_annotation),
+            "]",
+        ),
+    )
+}
+
+rule use_site_target {
+    seq(
+        choice("field", "property", "get", "set", "receiver", "param", "setparam", "delegate"),
+        ":",
+    )
+}
+
+rule _unescaped_annotation { choice(constructor_invocation, type) }
+
+rule type {
+    choice(
+        user_type, nullable_type, function_type,
+        non_nullable_type, parenthesized_type,
+        "dynamic",
+    )
+}
+
+rule user_type {
+    seq(optional(type_modifiers), sep1(_simple_user_type, "."))
+}
+
+rule _simple_user_type {
+    prec_right(0, seq(_identifier, optional(type_arguments)))
+}
+
+rule nullable_type {
+    seq(optional(type_modifiers), type, "?")
+}
+
+rule non_nullable_type {
+    prec_right(0, seq(
+        optional(type_modifiers),
+        type,
+        "&",
+        optional(type_modifiers),
+        type,
+    ))
+}
+
+rule _receiver_type {
+    seq(
+        optional(type_modifiers),
+        choice(user_type, "dynamic", parenthesized_type, nullable_type),
+    )
+}
+
+rule type_arguments {
+    seq("<", comma_sep1(type_projection), ">")
+}
+
+rule type_projection {
+    choice(
+        seq(repeat(variance_modifier), type),
+        "*",
+    )
+}
+
+rule function_type {
+    seq(
+        optional(type_modifiers),
+        optional(seq(_receiver_type, ".")),
+        function_type_parameters,
+        "->",
+        type,
+    )
+}
+
+rule function_type_parameters {
+    seq("(", optional_comma_sep1(choice(parameter, type)), ")")
+}
+
+rule parenthesized_type { seq("(", type, ")") }
+
+rule assignment {
+    seq(
+        field(left, expression),
+        field(operator, choice("=", "+=", "-=", "*=", "/=", "%=")),
+        field(right, expression),
+    )
+}
+
+rule expression {
+    choice(primary_expression, index_expression, return_expression, throw_expression)
+}
+
+rule primary_expression {
+    choice(
+        _identifier, string_literal, multiline_string_literal,
+        character_literal, number_literal, float_literal,
+        object_literal, collection_literal,
+        navigation_expression, binary_expression, unary_expression,
+        annotated_expression, labeled_expression,
+        call_expression, in_expression, is_expression, as_expression,
+        spread_expression, infix_expression, range_expression,
+        if_expression, parenthesized_expression,
+        this_expression, super_expression, when_expression, try_expression,
+        callable_reference, lambda_literal, anonymous_function,
+    )
+}
+
+rule unary_expression {
+    prec_left(PREC.UNARY, choice(
+        seq(
+            field(operator, choice("++", "--", "+", "-", "!")),
+            field(argument, expression),
+        ),
+        seq(
+            field(argument, expression),
+            field(operator, choice("++", "--", "!!")),
+        ),
+    ))
+}
+
+rule annotated_expression { seq(annotation, expression) }
+
+rule labeled_expression { seq(label, expression) }
+
+rule binary_expression {
+    choice(
+        binop_l(PREC.ADD, "+"),
+        binop_l(PREC.ADD, "-"),
+        binop_l(PREC.MULTIPLY, "*"),
+        binop_l(PREC.MULTIPLY, "/"),
+        binop_l(PREC.MULTIPLY, "%"),
+        binop_l(PREC.LOGICAL_OR, "||"),
+        binop_l(PREC.LOGICAL_AND, "&&"),
+        binop_l(PREC.EQUAL, "!="),
+        binop_l(PREC.EQUAL, "!=="),
+        binop_l(PREC.EQUAL, "=="),
+        binop_l(PREC.EQUAL, "==="),
+        binop_l(PREC.RELATIONAL, ">"),
+        binop_l(PREC.RELATIONAL, ">="),
+        binop_l(PREC.RELATIONAL, "<="),
+        binop_l(PREC.RELATIONAL, "<"),
+        binop_l(PREC.ELVIS, "?:"),
+    )
+}
+
+rule in_expression {
+    prec_left(PREC.IN, seq(
+        field(left, expression),
+        choice("in", "!in"),
+        field(right, expression),
+    ))
+}
+
+rule is_expression {
+    prec_left(PREC.IN, seq(
+        field(left, expression),
+        choice("is", alias(_not_is, "!is")),
+        field(right, type),
+    ))
+}
+
+rule as_expression {
+    prec_left(PREC.AS, seq(
+        field(left, expression),
+        choice("as", "as?"),
+        field(right, type),
+    ))
+}
+
+rule spread_expression {
+    prec(PREC.SPREAD, seq("*", expression))
+}
+
+rule range_expression {
+    prec_left(PREC.RANGE, seq(
+        expression,
+        choice("..", "..<"),
+        expression,
+    ))
+}
+
+rule infix_expression {
+    prec_left(PREC.INFIX, seq(expression, identifier, expression))
+}
+
+rule call_expression {
+    prec_left(PREC.CALL, seq(
+        expression,
+        optional(type_arguments),
+        choice(
+            value_arguments,
+            seq(optional(value_arguments), annotated_lambda),
+        ),
+    ))
+}
+
+rule annotated_lambda {
+    seq(repeat(annotation), optional(label), lambda_literal)
+}
+
+rule lambda_literal {
+    seq(
+        "{",
+        optional(seq(optional(lambda_parameters), "->")),
+        optional_sep1(statement, _semi),
+        "}",
+    )
+}
+
+rule lambda_parameters {
+    seq(comma_sep1(_lambda_parameter), optional(","))
+}
+
+rule _lambda_parameter {
+    choice(variable_declaration, multi_variable_declaration)
+}
+
+rule anonymous_function {
+    prec_right(0, seq(
+        "fun",
+        optional(seq(type, ".")),
+        function_value_parameters,
+        optional(seq(":", type)),
+        optional(type_constraints),
+        optional(function_body),
+    ))
+}
+
+rule index_expression {
+    prec(PREC.CALL, seq(
+        expression,
+        "[",
+        comma_sep(expression),
+        "]",
+    ))
+}
+
+rule this_expression {
+    choice("this", seq("this@", identifier))
+}
+
+rule super_expression {
+    prec_right(0, choice(
+        "super",
+        seq("super", "<", type, ">"),
+        seq("super@", identifier),
+        seq("super", "<", type, ">", token_immediate("@"), identifier),
+    ))
+}
+
+rule if_expression {
+    prec_right(0, seq(
+        "if",
+        "(",
+        field(condition, expression),
+        ")",
+        choice(
+            block,
+            expression,
+            assignment,
+            ";",
+            seq(
+                optional(choice(block, expression, assignment)),
+                optional(";"),
+                "else",
+                choice(block, expression, assignment, ";"),
+            ),
+        ),
+    ))
+}
+
+rule parenthesized_expression { seq("(", expression, ")") }
+
+rule collection_literal {
+    seq("[", comma_sep1(expression), optional(","), "]")
+}
+
+rule when_expression {
+    seq(
+        "when",
+        optional(when_subject),
+        "{",
+        repeat(when_entry),
+        "}",
+    )
+}
+
+rule when_subject {
+    seq(
+        "(",
+        optional(seq(
+            repeat(annotation),
+            "val",
+            variable_declaration,
+            "=",
+        )),
+        expression,
+        ")",
+    )
+}
+
+rule when_entry {
+    seq(
+        choice(
+            seq(comma_sep1(field(condition, _when_condition)), optional(",")),
+            "else",
+        ),
+        "->",
+        choice(block, statement),
+        optional(_semi),
+    )
+}
+
+rule _when_condition { choice(expression, range_test, type_test) }
+
+rule range_test {
+    seq(choice(alias(_in, "in"), "!in"), expression)
+}
+
+rule type_test {
+    seq(choice("is", alias(_not_is, "!is")), type)
+}
+
+rule try_expression {
+    seq(
+        "try",
+        block,
+        choice(
+            seq(repeat1(catch_block), optional(finally_block)),
+            finally_block,
+        ),
+    )
+}
+
+rule catch_block {
+    seq(
+        "catch",
+        "(",
+        repeat(annotation),
+        identifier,
+        ":",
+        type,
+        ")",
+        block,
+    )
+}
+
+rule finally_block { seq("finally", block) }
+
+rule return_expression {
+    prec_right(0, seq(
+        choice(
+            "return",
+            seq("return@", field(label, identifier)),
+        ),
+        optional(expression),
+    ))
+}
+
+rule throw_expression { seq("throw", expression) }
+
+rule continue_expression {
+    choice("continue", seq("continue@", field(label, identifier)))
+}
+
+rule break_expression {
+    choice("break", seq("break@", field(label, identifier)))
+}
+
+rule callable_reference {
+    seq(
+        optional(_receiver_type),
+        "::",
+        choice(identifier, "class"),
+    )
+}
+
+rule navigation_expression {
+    prec(PREC.CALL, seq(
+        expression,
+        choice(".", alias(_q_dot, "?."), "::"),
+        identifier,
+    ))
+}
+
+rule object_literal {
+    seq(
+        "object",
+        optional(seq(":", delegation_specifiers)),
+        class_body,
+    )
+}
+
+rule string_literal {
+    seq(
+        "\"",
+        repeat(choice(
+            alias(
+                choice(
+                    token_immediate(prec(2, seq("\\", regexp(r#"[^bnrt'\"\\\$]"#)))),
+                    token_immediate(prec(1, regexp(r#"[^"\\\$]+"#))),
+                    "$",
+                ),
+                string_content,
+            ),
+            escape_sequence,
+            interpolation,
+        )),
+        "\"",
+    )
+}
+
+rule multiline_string_literal {
+    seq(
+        "\"\"\"",
+        repeat(choice(
+            alias(_multiline_string_content, string_content),
+            interpolation,
+        )),
+        choice("\"\"\"", "\"\"\"\""),
+    )
+}
+
+rule interpolation {
+    choice(
+        seq("$", _identifier),
+        seq("${", expression, "}"),
+    )
+}
+
+rule character_literal {
+    seq(
+        "'",
+        choice(
+            token_immediate(prec(1, regexp(r"[^'\\\r\n]"))),
+            escape_sequence,
+        ),
+        "'",
+    )
+}
+
+rule escape_sequence {
+    token_immediate(prec(1, seq(
+        "\\",
+        choice(
+            regexp(r"[^xu0-7]"),
+            regexp(r"u[0-9a-fA-F]{4}"),
+        ),
+    )))
+}
+
+rule number_literal {
+    token(seq(
+        choice(
+            seq(repeat1(regexp(r"[0-9]+")), repeat(seq("_", repeat1(regexp(r"[0-9]+"))))),
+            seq(regexp(r"0[xX]"), seq(repeat1(regexp(r"[0-9a-fA-F]")), repeat(seq("_", repeat1(regexp(r"[0-9a-fA-F]")))))),
+            seq(regexp(r"0[bB]"), seq(repeat1(regexp(r"[01]")), repeat(seq("_", repeat1(regexp(r"[01]")))))),
+        ),
+        optional(regexp(r"([lL]|[uU][lL]?)")),
+    ))
+}
+
+rule float_literal {
+    token(choice(
+        seq(
+            seq(repeat1(regexp(r"[0-9]+")), repeat(seq("_", repeat1(regexp(r"[0-9]+"))))),
+            regexp(r"[eE][+-]?[0-9]+"),
+            optional(regexp(r"[fF]")),
+        ),
+        seq(
+            optional(seq(repeat1(regexp(r"[0-9]+")), repeat(seq("_", repeat1(regexp(r"[0-9]+")))))),
+            ".",
+            repeat1(seq(repeat1(regexp(r"[0-9]+")), repeat(seq("_", repeat1(regexp(r"[0-9]+")))))),
+            optional(regexp(r"[eE][+-]?[0-9]+")),
+            optional(regexp(r"[fF]")),
+        ),
+        seq(
+            seq(repeat1(regexp(r"[0-9]+")), repeat(seq("_", repeat1(regexp(r"[0-9]+"))))),
+            regexp(r"[fF]"),
+        ),
+    ))
+}
+
+rule variance_modifier { choice("in", "out") }
+
+rule type_parameter_modifiers {
+    repeat1(choice(reification_modifier, variance_modifier, annotation))
+}
+
+rule qualified_identifier {
+    seq(identifier, repeat(seq(".", identifier)))
+}
+
+rule label { token(regexp(r"[a-zA-Z_][a-zA-Z_0-9]*@")) }
+
+rule _identifier { choice(identifier, _reserved_identifier) }
+
+rule identifier {
+    token(choice(
+        regexp(r"[\p{L}_][\p{L}_\p{Nd}]*"),
+        regexp(r"`[^\r\n`]+`"),
+    ))
+}
+
+rule _reserved_identifier {
+    prec_dynamic(1, alias(
+        choice(
+            "actual", "annotation", "constructor", "const", "data",
+            "enum", "expect", "inner", "get", "set", "operator", "value",
+        ),
+        identifier,
+    ))
+}
+
+rule shebang { regexp(r"#!.*") }
+
+rule line_comment { token(seq("//", regexp(r".*"))) }
